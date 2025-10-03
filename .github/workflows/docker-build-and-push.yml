@@ -3,7 +3,7 @@ name: Build and Push Docker Images
 permissions:
   pull-requests: write
   contents: read
-  packages: write # Added permission for GitHub Container Registry
+  packages: write # Für GHCR Push
 
 on:
   push:
@@ -65,12 +65,6 @@ jobs:
         uses: actions/checkout@v5
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Log in to Docker Hub
-        if: github.repository == 'stumpyofpain/paperless-gpt-docling-v1-T-Eberle'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -80,17 +74,15 @@ jobs:
       - name: Set Docker tags
         id: set_tags
         run: |
-          # Set repository names
-          DOCKERHUB_REPO="stumpyofpain/paperless-gpt-docling-v1-T-Eberle"
           GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
           
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            echo "TAGS=${DOCKERHUB_REPO}:pr-${GITHUB_SHA}-amd64,${GHCR_REPO}:pr-${GITHUB_SHA}-amd64" >> $GITHUB_ENV
+            echo "TAGS=${GHCR_REPO}:pr-${GITHUB_SHA}-amd64" >> $GITHUB_ENV
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
-            echo "TAGS=${DOCKERHUB_REPO}:${VERSION}-amd64,${GHCR_REPO}:${VERSION}-amd64" >> $GITHUB_ENV
+            echo "TAGS=${GHCR_REPO}:${VERSION}-amd64" >> $GITHUB_ENV
           else
-            echo "TAGS=${DOCKERHUB_REPO}:unreleased-amd64,${GHCR_REPO}:unreleased-amd64" >> $GITHUB_ENV
+            echo "TAGS=${GHCR_REPO}:unreleased-amd64" >> $GITHUB_ENV
           fi
       - name: Build and push AMD64 image
         id: build_amd64
@@ -98,7 +90,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          push: ${{ github.repository == 'stumpyofpain/paperless-gpt-docling-v1-T-Eberle' }}
+          push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: ${{ env.TAGS }}
@@ -129,14 +121,7 @@ jobs:
         uses: actions/checkout@v5
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Log in to Docker Hub
-        if: ${{ github.event_name != 'pull_request' && github.repository == 'stumpyofpain/paperless-gpt-docling-v1-T-Eberle' }}
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Log in to GitHub Container Registry
-        if: ${{ github.event_name != 'pull_request' }}
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -145,15 +130,13 @@ jobs:
       - name: Set Docker tags
         id: set_tags
         run: |
-          # Set repository names
-          DOCKERHUB_REPO="stumpyofpain/paperless-gpt-docling-v1-T-Eberle"
           GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
           
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
-            echo "TAGS=${DOCKERHUB_REPO}:${VERSION}-arm64,${GHCR_REPO}:${VERSION}-arm64" >> $GITHUB_ENV
+            echo "TAGS=${GHCR_REPO}:${VERSION}-arm64" >> $GITHUB_ENV
           else
-            echo "TAGS=${DOCKERHUB_REPO}:unreleased-arm64,${GHCR_REPO}:unreleased-arm64" >> $GITHUB_ENV
+            echo "TAGS=${GHCR_REPO}:unreleased-arm64" >> $GITHUB_ENV
           fi
       - name: Build and push ARM64 image
         id: build_arm64
@@ -161,7 +144,7 @@ jobs:
         with:
           context: .
           platforms: linux/arm64
-          push: ${{ github.event_name != 'pull_request' && github.repository == 'stumpyofpain/paperless-gpt-docling-v1-T-Eberle' }}
+          push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: ${{ env.TAGS }}
@@ -184,7 +167,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
     env:
-      DOCKERHUB_REPO: stumpyofpain/paperless-gpt-docling-v1-T-Eberle
       GHCR_REPO: ghcr.io/${{ github.repository }}
     steps:
       - name: Download amd64 digest
@@ -199,12 +181,6 @@ jobs:
           path: ${{ runner.temp }}/digests
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Login to Docker Hub
-        if: github.repository == 'stumpyofpain/paperless-gpt-docling-v1-T-Eberle'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -225,36 +201,18 @@ jobs:
           AMD64_DIGEST=$(cat ${{ runner.temp }}/digests/digest-amd64.txt)
           ARM64_DIGEST=$(cat ${{ runner.temp }}/digests/digest-arm64.txt)
           
-          # Create manifests for Docker Hub
-          docker buildx imagetools create -t ${DOCKERHUB_REPO}:${VERSION} \
-            ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
-            
-          # Create manifests for GHCR
           docker buildx imagetools create -t ${GHCR_REPO}:${VERSION} \
-            ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
-            
-          # Also push "latest" tag when on a tag
+            ${GHCR_REPO}@sha256:${AMD64_DIGEST} ${GHCR_REPO}@sha256:${ARM64_DIGEST}
+          
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            # Docker Hub latest
-            docker buildx imagetools create -t ${DOCKERHUB_REPO}:latest \
-              ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
-              
-            # GHCR latest
             docker buildx imagetools create -t ${GHCR_REPO}:latest \
-              ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
+              ${GHCR_REPO}@sha256:${AMD64_DIGEST} ${GHCR_REPO}@sha256:${ARM64_DIGEST}
           fi
       - name: Inspect manifest
         run: |
-          echo "Inspecting Docker Hub manifest:"
-          docker buildx imagetools inspect ${DOCKERHUB_REPO}:${VERSION}
-          
           echo "Inspecting GHCR manifest:"
           docker buildx imagetools inspect ${GHCR_REPO}:${VERSION}
-          
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            echo "Inspecting Docker Hub latest manifest:"
-            docker buildx imagetools inspect ${DOCKERHUB_REPO}:latest
-            
             echo "Inspecting GHCR latest manifest:"
             docker buildx imagetools inspect ${GHCR_REPO}:latest
           fi
@@ -271,12 +229,13 @@ jobs:
         uses: actions/checkout@v5
       - name: Set PAPERLESS_GPT_IMAGE
         run: |
+          GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
           if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            IMAGE="stumpyofpain/paperless-gpt-docling-v1-T-Eberle:pr-${GITHUB_SHA}-amd64"
+            IMAGE="${GHCR_REPO}:pr-${GITHUB_SHA}-amd64"
           elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            IMAGE="stumpyofpain/paperless-gpt-docling-v1-T-Eberle:${GITHUB_REF_NAME}-amd64"
+            IMAGE="${GHCR_REPO}:${GITHUB_REF_NAME}-amd64"
           else
-            IMAGE="stumpyofpain/paperless-gpt-docling-v1-T-Eberle:unreleased-amd64"
+            IMAGE="${GHCR_REPO}:unreleased-amd64"
           fi
           echo "PAPERLESS_GPT_IMAGE=${IMAGE}" >> $GITHUB_ENV
       - name: Setup Node.js
