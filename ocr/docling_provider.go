@@ -91,7 +91,7 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 	}
 
 	// Create HTTP request
-	requestURL := p.baseURL + "/v1alpha/convert/file"
+	requestURL := p.baseURL //+ "/v1alpha/convert/file"
 	req, err := retryablehttp.NewRequestWithContext(ctx, "POST", requestURL, &requestBody)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create HTTP request")
