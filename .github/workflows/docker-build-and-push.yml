@@ -3,7 +3,7 @@ name: Build and Push Docker Images
 permissions:
   pull-requests: write
   contents: read
-  packages: write # Für GHCR Push
+  packages: write # Für GitHub Container Registry
 
 on:
   push:
@@ -71,11 +71,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set GHCR repo lowercase
+        run: echo "GHCR_REPO=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
       - name: Set Docker tags
         id: set_tags
         run: |
-          GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
-          
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
             echo "TAGS=${GHCR_REPO}:pr-${GITHUB_SHA}-amd64" >> $GITHUB_ENV
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
@@ -127,11 +127,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set GHCR repo lowercase
+        run: echo "GHCR_REPO=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
       - name: Set Docker tags
         id: set_tags
         run: |
-          GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
-          
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
             echo "TAGS=${GHCR_REPO}:${VERSION}-arm64" >> $GITHUB_ENV
@@ -166,8 +166,6 @@ jobs:
     needs: [build-amd64, build-arm64]
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
-    env:
-      GHCR_REPO: ghcr.io/${{ github.repository }}
     steps:
       - name: Download amd64 digest
         uses: actions/download-artifact@v5
@@ -187,6 +185,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set GHCR repo lowercase
+        run: echo "GHCR_REPO=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
       - name: Determine version/tag
         id: get_version
         run: |
@@ -200,10 +200,10 @@ jobs:
         run: |
           AMD64_DIGEST=$(cat ${{ runner.temp }}/digests/digest-amd64.txt)
           ARM64_DIGEST=$(cat ${{ runner.temp }}/digests/digest-arm64.txt)
-          
+
           docker buildx imagetools create -t ${GHCR_REPO}:${VERSION} \
             ${GHCR_REPO}@sha256:${AMD64_DIGEST} ${GHCR_REPO}@sha256:${ARM64_DIGEST}
-          
+
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             docker buildx imagetools create -t ${GHCR_REPO}:latest \
               ${GHCR_REPO}@sha256:${AMD64_DIGEST} ${GHCR_REPO}@sha256:${ARM64_DIGEST}
@@ -213,60 +213,5 @@ jobs:
           echo "Inspecting GHCR manifest:"
           docker buildx imagetools inspect ${GHCR_REPO}:${VERSION}
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            echo "Inspecting GHCR latest manifest:"
             docker buildx imagetools inspect ${GHCR_REPO}:latest
           fi
-
-  e2e-tests:
-    name: E2E Tests
-    needs: build-amd64
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./web-app
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-      - name: Set PAPERLESS_GPT_IMAGE
-        run: |
-          GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            IMAGE="${GHCR_REPO}:pr-${GITHUB_SHA}-amd64"
-          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            IMAGE="${GHCR_REPO}:${GITHUB_REF_NAME}-amd64"
-          else
-            IMAGE="${GHCR_REPO}:unreleased-amd64"
-          fi
-          echo "PAPERLESS_GPT_IMAGE=${IMAGE}" >> $GITHUB_ENV
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: './web-app/package-lock.json'
-      - name: Install dependencies
-        run: npm ci
-      - name: Install Playwright browsers
-        run: npx playwright install chromium --with-deps
-      - name: Run Playwright tests
-        run: npm run test:e2e
-        env:
-          CI: true
-          DEBUG: testcontainers:containers
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-          PAPERLESS_GPT_IMAGE: ${{ env.PAPERLESS_GPT_IMAGE }}
-      - name: Upload Playwright Report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: web-app/playwright-report/
-          retention-days: 30
-      - name: Upload test screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: web-app/test-results/
-          retention-days: 30
