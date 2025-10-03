@@ -1,4 +1,4 @@
-.env
+.env 
 Dockerfile
 web-app/e2e
 web-app/node_modules
